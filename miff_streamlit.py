@@ -4,11 +4,12 @@ import pandas as pd
 import re
 import json
 import requests
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlencode, parse_qs
 from typing import List, Dict
 from datetime import datetime, timedelta
 import pytz
-# For calendar component, you'll need to install: pip install streamlit-calendar
+import base64
+import urllib.parse
 
 # Page configuration
 st.set_page_config(
@@ -16,6 +17,93 @@ st.set_page_config(
     page_icon="🎬",
     layout="wide"
 )
+
+# Function to encode shortlist for URL sharing
+def encode_shortlist_for_url(shortlist):
+    """
+    Encode shortlist for URL sharing using base64
+    """
+    try:
+        shortlist_data = {
+            "films": list(shortlist),
+            "shared_at": datetime.now().isoformat()
+        }
+        json_str = json.dumps(shortlist_data)
+        encoded = base64.urlsafe_b64encode(json_str.encode()).decode()
+        return encoded
+    except Exception as e:
+        st.error(f"Error encoding shortlist: {str(e)}")
+        return None
+
+def decode_shortlist_from_url(encoded_data):
+    """
+    Decode shortlist from URL parameter
+    """
+    try:
+        decoded = base64.urlsafe_b64decode(encoded_data.encode()).decode()
+        shortlist_data = json.loads(decoded)
+        return set(shortlist_data.get("films", []))
+    except Exception as e:
+        st.error(f"Error decoding shared shortlist: {str(e)}")
+        return set()
+
+def generate_share_url(shortlist):
+    """
+    Generate a shareable URL with the shortlist encoded
+    """
+    encoded_shortlist = encode_shortlist_for_url(shortlist)
+    if encoded_shortlist:
+        # Check if running locally or on deployment
+        try:
+            # For deployed app
+            base_url = "https://miff2025browser.streamlit.app"
+            # For local development, you can uncomment the line below:
+            # base_url = "http://localhost:8501"
+        except:
+            base_url = "https://miff2025browser.streamlit.app"
+        
+        share_url = f"{base_url}?shortlist={encoded_shortlist}"
+        return share_url
+    return None
+
+def check_for_shared_shortlist():
+    """
+    Check URL parameters for shared shortlist and load it
+    """
+    # Use the latest Streamlit query params API
+    query_params = st.query_params
+    
+    # Get the shortlist parameter
+    shortlist_param = query_params.get("shortlist")
+    
+    if shortlist_param:
+        shared_shortlist = decode_shortlist_from_url(shortlist_param)
+        
+        if shared_shortlist:
+            # Show import dialog
+            st.sidebar.success(f"🔗 Shared shortlist detected! ({len(shared_shortlist)} films)")
+            
+            col1, col2 = st.sidebar.columns(2)
+            with col1:
+                if st.button("📥 Import", key="import_shared"):
+                    st.session_state.shortlist = shared_shortlist
+                    st.session_state.imported_shared = True
+                    # Clear the URL parameter after importing
+                    st.query_params.clear()
+                    st.success(f"✅ Imported {len(shared_shortlist)} films!")
+                    st.rerun()
+            
+            with col2:
+                if st.button("❌ Ignore", key="ignore_shared"):
+                    st.session_state.ignored_shared = True
+                    # Clear the URL parameter
+                    st.query_params.clear()
+                    st.rerun()
+            
+            # Show what would be imported
+            with st.sidebar.expander("🔍 Preview Shared Films"):
+                for film in sorted(shared_shortlist):
+                    st.write(f"• {film}")
 
 # Function to load and process the data
 @st.cache_data
@@ -267,9 +355,24 @@ def main():
     st.markdown("This is a personal project and not affiliated with the Melbourne International Film Festival. I make no guarantees about the accuracy of the data, but if this is helpful to you, feel free to share this with your friends!")
     st.markdown("Please report any issues or suggestions in the github repo: https://github.com/darrenkjr/miff2025/issues/new ")
     
+    # Initialize session state variables if they don't exist
+    if 'shortlist' not in st.session_state:
+        st.session_state.shortlist = set()
+    if 'imported_shared' not in st.session_state:
+        st.session_state.imported_shared = False
+    if 'ignored_shared' not in st.session_state:
+        st.session_state.ignored_shared = False
+    
+    # Check for shared shortlist in URL parameters (only if not already imported/ignored)
+    if not st.session_state.imported_shared and not st.session_state.ignored_shared:
+        check_for_shared_shortlist()
+    
     # Load data directly from local file
     processed_df = load_miff_data()
     
+    if processed_df.empty:
+        st.error("No data loaded. Please check your CSV file.")
+        return
     
     # Display column information for debugging
     st.sidebar.header("📊 Data Info")
@@ -369,10 +472,6 @@ def main():
         )
         filtered_films = filtered_films[search_mask]
     
-    # Initialize shortlist in session state
-    if 'shortlist' not in st.session_state:
-        st.session_state.shortlist = set()
-    
     # Shortlist management in sidebar
     st.sidebar.header("💾 Shortlist Management")
     
@@ -462,7 +561,20 @@ def main():
             st.header("❤️ Your Shortlist")
             
             if not st.session_state.shortlist:
-                st.info("No films in your shortlist yet. Add some films to see them here!")
+                st.info("No films in your shortlist yet. Add some films to see them here or import a shortlist from a friend!")
+                
+                # File uploader for JSON import
+                uploaded_file = st.file_uploader("Import Shortlist from JSON", type="json")
+                if uploaded_file is not None:
+                    try:
+                        shortlist_data = json.load(uploaded_file)
+                        imported_films = set(shortlist_data.get("films", []))
+                        if imported_films:
+                            st.session_state.shortlist = imported_films
+                            st.success(f"✅ Imported {len(imported_films)} films!")
+                            st.rerun()
+                    except Exception as e:
+                        st.error(f"Error importing shortlist: {str(e)}")
             else:
                 st.markdown(f"**{len(st.session_state.shortlist)} films shortlisted**")
                 
@@ -506,10 +618,24 @@ def main():
                 
                 st.markdown("---")
                 
-                # Export shortlist
-                if st.button("📋 Export Shortlist as Text"):
-                    shortlist_text = "\n".join([f"- {title}" for title in st.session_state.shortlist])
-                    st.text_area("Copy your shortlist:", shortlist_text, height=200)
+                # Share shortlist section
+                st.subheader("🔗 Share Your Shortlist")
+                
+                # Generate share URL
+                if st.button("🔗 Generate Share Link", help="Create a link to share your shortlist with friends"):
+                    share_url = generate_share_url(st.session_state.shortlist)
+                    if share_url:
+                        st.success("✅ Share link generated!")
+                        st.code(share_url, language="text")
+                        st.markdown("**Copy this link and send it to your friends!**")
+                        st.info("💡 Tip: Anyone with this link can import your shortlist into their own browser")
+                        # Store the generated URL for display
+                        st.session_state.current_share_url = share_url
+                    else:
+                        st.error("❌ Failed to generate share link")
+                
+                
+                st.markdown("---")
                 
                 # Load shortlist detail button
                 if st.button("📋 Load Shortlist Detail"):
@@ -521,7 +647,10 @@ def main():
                     st.session_state.shortlist.clear()
                     if hasattr(st.session_state, 'trailer_urls'):
                         st.session_state.trailer_urls.clear()
+                    if hasattr(st.session_state, 'current_share_url'):
+                        del st.session_state.current_share_url
                     st.rerun()
+
         
         # Show sessions for selected film (only in browse mode)
         if hasattr(st.session_state, 'selected_film_for_sessions'):
@@ -595,7 +724,7 @@ def main():
                 del st.session_state.selected_film_for_sessions
                 st.rerun()
     
-    # Shortlist Dashboard View
+    # Shortlist Dashboard View (keeping the rest of the original dashboard code...)
     if hasattr(st.session_state, 'show_shortlist_detail') and st.session_state.show_shortlist_detail:
         # Dashboard header with navigation
         dashboard_col1, dashboard_col2 = st.columns([3, 1])

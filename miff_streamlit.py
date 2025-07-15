@@ -233,161 +233,305 @@ def main():
             else:
                 st.sidebar.info("No saved shortlist found")
     
-    # Main content area
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        st.header(f"🎭 Films ({len(filtered_films)} found)")
+    # Main content area - only show if not in dashboard mode
+    if not (hasattr(st.session_state, 'show_shortlist_detail') and st.session_state.show_shortlist_detail):
+        col1, col2 = st.columns([2, 1])
         
-        if len(filtered_films) == 0:
-            st.warning("No films match your current filters.")
-        else:
-            # Display films
-            for idx, (_, film) in enumerate(filtered_films.iterrows()):
-                with st.expander(f"🎬 {film['title']}", expanded=False):
-                    film_col1, film_col2 = st.columns([3, 1])
-                    
-                    with film_col1:
-                        st.markdown(f"**Director:** {film.get('director', 'N/A')}")
-                        
-                        if pd.notna(film.get('genres')):
-                            genres_list = parse_genres(film['genres'])
-                            if genres_list:
-                                st.markdown(f"**Genres:** {', '.join(genres_list)}")
-                        
-                        if pd.notna(film.get('languages')):
-                            languages_list = parse_languages(film['languages'])
-                            if languages_list:
-                                st.markdown(f"**Languages:** {', '.join(languages_list)}")
-                        
-                        if pd.notna(film.get('runtime')):
-                            st.markdown(f"**Runtime:** {film['runtime']}")
-                        
-                        if pd.notna(film.get('year')):
-                            st.markdown(f"**Year:** {film['year']}")
-                        
-                        if pd.notna(film.get('description')):
-                            st.markdown(f"**Description:** {film['description']}")
-                    
-                    with film_col2:
-                        # Shortlist button
-                        film_title = film['title']
-                        if film_title in st.session_state.shortlist:
-                            if st.button(f"❤️ Remove from shortlist", key=f"remove_{idx}"):
-                                st.session_state.shortlist.remove(film_title)
-                                st.rerun()
-                        else:
-                            if st.button(f"🤍 Add to shortlist", key=f"add_{idx}"):
-                                st.session_state.shortlist.add(film_title)
-                                st.rerun()
-                        
-                        # Trailer link (if available)
-                        if pd.notna(film.get('film_url')):
-                            trailer_url = get_trailer_url(film['film_url'])
-                            st.markdown(f"[🎥 Film Page]({film['film_url']})")
-                        
-                        # Sessions button
-                        if st.button(f"📅 View Sessions", key=f"sessions_{idx}"):
-                            st.session_state.selected_film_for_sessions = film_title
-    
-    with col2:
-        st.header("❤️ Your Shortlist")
-        
-        if not st.session_state.shortlist:
-            st.info("No films in your shortlist yet. Add some films to see them here!")
-        else:
-            st.markdown(f"**{len(st.session_state.shortlist)} films shortlisted**")
+        with col1:
+            st.header(f"🎭 Films ({len(filtered_films)} found)")
             
-            # Display shortlisted films with trailer search
-            for film_title in st.session_state.shortlist:
-                with st.expander(f"🎬 {film_title}", expanded=False):
-                    # Get film details for trailer search
-                    film_details = unique_films[unique_films['title'] == film_title]
-                    if not film_details.empty:
-                        film_row = film_details.iloc[0]
-                        director = film_row.get('director', '')
-                        year = film_row.get('year', '')
+            if len(filtered_films) == 0:
+                st.warning("No films match your current filters.")
+            else:
+                # Display films
+                for idx, (_, film) in enumerate(filtered_films.iterrows()):
+                    with st.expander(f"🎬 {film['title']}", expanded=False):
+                        film_col1, film_col2 = st.columns([3, 1])
                         
-                        # Film info
-                        if pd.notna(director):
-                            st.markdown(f"**Director:** {director}")
-                        if pd.notna(year):
-                            st.markdown(f"**Year:** {year}")
+                        with film_col1:
+                            st.markdown(f"**Director:** {film.get('director', 'N/A')}")
+                            
+                            if pd.notna(film.get('genres')):
+                                genres_list = parse_genres(film['genres'])
+                                if genres_list:
+                                    st.markdown(f"**Genres:** {', '.join(genres_list)}")
+                            
+                            if pd.notna(film.get('languages')):
+                                languages_list = parse_languages(film['languages'])
+                                if languages_list:
+                                    st.markdown(f"**Languages:** {', '.join(languages_list)}")
+                            
+                            if pd.notna(film.get('runtime')):
+                                st.markdown(f"**Runtime:** {film['runtime']}")
+                            
+                            if pd.notna(film.get('year')):
+                                st.markdown(f"**Year:** {film['year']}")
+                            
+                            if pd.notna(film.get('description')):
+                                st.markdown(f"**Description:** {film['description']}")
                         
-                        # Trailer search button
-                        if st.button(f"🎥 Search Trailer on YouTube", key=f"trailer_{film_title}"):
-                            trailer_url = search_youtube_trailer(film_title, director, year)
-                            if trailer_url:
-                                st.markdown(f"[🎬 Watch Trailer on YouTube]({trailer_url})")
-                                # Store the trailer URL in session state for persistence
-                                if 'trailer_urls' not in st.session_state:
-                                    st.session_state.trailer_urls = {}
-                                st.session_state.trailer_urls[film_title] = trailer_url
-                        
-                        # Show stored trailer URL if available
-                        if hasattr(st.session_state, 'trailer_urls') and film_title in st.session_state.trailer_urls:
-                            st.markdown(f"[🎬 Watch Trailer on YouTube]({st.session_state.trailer_urls[film_title]})")
-                        
-                        # Remove from shortlist button
-                        if st.button(f"🗑️ Remove", key=f"remove_shortlist_{film_title}"):
-                            st.session_state.shortlist.remove(film_title)
-                            # Also remove trailer URL if stored
+                        with film_col2:
+                            # Shortlist button
+                            film_title = film['title']
+                            if film_title in st.session_state.shortlist:
+                                if st.button(f"❤️ Remove from shortlist", key=f"remove_{idx}"):
+                                    st.session_state.shortlist.remove(film_title)
+                                    st.rerun()
+                            else:
+                                if st.button(f"🤍 Add to shortlist", key=f"add_{idx}"):
+                                    st.session_state.shortlist.add(film_title)
+                                    st.rerun()
+                            
+                            # Trailer link (if available)
+                            if pd.notna(film.get('film_url')):
+                                trailer_url = get_trailer_url(film['film_url'])
+                                st.markdown(f"[🎥 Film Page]({film['film_url']})")
+                            
+                            # Sessions button
+                            if st.button(f"📅 View Sessions", key=f"sessions_{idx}"):
+                                st.session_state.selected_film_for_sessions = film_title
+        
+        with col2:
+            st.header("❤️ Your Shortlist")
+            
+            if not st.session_state.shortlist:
+                st.info("No films in your shortlist yet. Add some films to see them here!")
+            else:
+                st.markdown(f"**{len(st.session_state.shortlist)} films shortlisted**")
+                
+                # Display shortlisted films with trailer search
+                for film_title in st.session_state.shortlist:
+                    with st.expander(f"🎬 {film_title}", expanded=False):
+                        # Get film details for trailer search
+                        film_details = unique_films[unique_films['title'] == film_title]
+                        if not film_details.empty:
+                            film_row = film_details.iloc[0]
+                            director = film_row.get('director', '')
+                            year = film_row.get('year', '')
+                            
+                            # Film info
+                            if pd.notna(director):
+                                st.markdown(f"**Director:** {director}")
+                            if pd.notna(year):
+                                st.markdown(f"**Year:** {year}")
+                            
+                            # Trailer search button
+                            if st.button(f"🎥 Search Trailer on YouTube", key=f"trailer_{film_title}"):
+                                trailer_url = search_youtube_trailer(film_title, director, year)
+                                if trailer_url:
+                                    st.markdown(f"[🎬 Watch Trailer on YouTube]({trailer_url})")
+                                    # Store the trailer URL in session state for persistence
+                                    if 'trailer_urls' not in st.session_state:
+                                        st.session_state.trailer_urls = {}
+                                    st.session_state.trailer_urls[film_title] = trailer_url
+                            
+                            # Show stored trailer URL if available
                             if hasattr(st.session_state, 'trailer_urls') and film_title in st.session_state.trailer_urls:
-                                del st.session_state.trailer_urls[film_title]
-                            st.rerun()
-            
-            st.markdown("---")
-            
-            # Export shortlist
-            if st.button("📋 Export Shortlist as Text"):
-                shortlist_text = "\n".join([f"- {title}" for title in st.session_state.shortlist])
-                st.text_area("Copy your shortlist:", shortlist_text, height=200)
-            
-            # Clear shortlist
-            if st.button("🗑️ Clear Shortlist"):
-                st.session_state.shortlist.clear()
-                if hasattr(st.session_state, 'trailer_urls'):
-                    st.session_state.trailer_urls.clear()
-                st.rerun()
-    
-    # Show sessions for selected film
-    if hasattr(st.session_state, 'selected_film_for_sessions'):
-        selected_film = st.session_state.selected_film_for_sessions
-        st.header(f"📅 Sessions for: {selected_film}")
-        
-        # Get all sessions for this film
-        film_sessions = processed_df[processed_df['title'] == selected_film].copy()
-        
-        if len(film_sessions) > 0:
-            # Group by date
-            film_sessions['session_date'] = pd.to_datetime(film_sessions['session_date'], errors='coerce')
-            film_sessions = film_sessions.sort_values('session_date')
-            
-            for _, session in film_sessions.iterrows():
-                col1, col2, col3 = st.columns(3)
-                
-                with col1:
-                    if pd.notna(session['session_date']):
-                        st.markdown(f"**📅 {session['session_date'].strftime('%B %d, %Y') if hasattr(session['session_date'], 'strftime') else session['session_date']}**")
-                
-                with col2:
-                    if pd.notna(session['session_time']):
-                        st.markdown(f"**🕐 {session['session_time']}**")
-                
-                with col3:
-                    if pd.notna(session['session_venue']):
-                        st.markdown(f"**📍 {session['session_venue']}**")
-                
-                if pd.notna(session.get('session_context')):
-                    st.markdown(f"*{session['session_context']}*")
+                                st.markdown(f"[🎬 Watch Trailer on YouTube]({st.session_state.trailer_urls[film_title]})")
+                            
+                            # Remove from shortlist button
+                            if st.button(f"🗑️ Remove", key=f"remove_shortlist_{film_title}"):
+                                st.session_state.shortlist.remove(film_title)
+                                # Also remove trailer URL if stored
+                                if hasattr(st.session_state, 'trailer_urls') and film_title in st.session_state.trailer_urls:
+                                    del st.session_state.trailer_urls[film_title]
+                                st.rerun()
                 
                 st.markdown("---")
-        else:
-            st.warning("No session information found for this film.")
+                
+                # Export shortlist
+                if st.button("📋 Export Shortlist as Text"):
+                    shortlist_text = "\n".join([f"- {title}" for title in st.session_state.shortlist])
+                    st.text_area("Copy your shortlist:", shortlist_text, height=200)
+                
+                # Load shortlist detail button
+                if st.button("📋 Load Shortlist Detail"):
+                    st.session_state.show_shortlist_detail = True
+                    st.rerun()
+                
+                # Clear shortlist
+                if st.button("🗑️ Clear Shortlist"):
+                    st.session_state.shortlist.clear()
+                    if hasattr(st.session_state, 'trailer_urls'):
+                        st.session_state.trailer_urls.clear()
+                    st.rerun()
         
-        if st.button("❌ Close Sessions"):
-            del st.session_state.selected_film_for_sessions
-            st.rerun()
+        # Show sessions for selected film (only in browse mode)
+        if hasattr(st.session_state, 'selected_film_for_sessions'):
+            selected_film = st.session_state.selected_film_for_sessions
+            st.header(f"📅 Sessions for: {selected_film}")
+            
+            # Get all sessions for this film
+            film_sessions = processed_df[processed_df['title'] == selected_film].copy()
+            
+            if len(film_sessions) > 0:
+                # Group by date
+                film_sessions['session_date'] = pd.to_datetime(film_sessions['session_date'], errors='coerce')
+                film_sessions = film_sessions.sort_values('session_date')
+                
+                for _, session in film_sessions.iterrows():
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        if pd.notna(session['session_date']):
+                            st.markdown(f"**📅 {session['session_date'].strftime('%B %d, %Y') if hasattr(session['session_date'], 'strftime') else session['session_date']}**")
+                    
+                    with col2:
+                        if pd.notna(session['session_time']):
+                            st.markdown(f"**🕐 {session['session_time']}**")
+                    
+                    with col3:
+                        if pd.notna(session['session_venue']):
+                            st.markdown(f"**📍 {session['session_venue']}**")
+                    
+                    if pd.notna(session.get('session_context')):
+                        st.markdown(f"*{session['session_context']}*")
+                    
+                    st.markdown("---")
+            else:
+                st.warning("No session information found for this film.")
+            
+            if st.button("❌ Close Sessions"):
+                del st.session_state.selected_film_for_sessions
+                st.rerun()
+    
+    # Shortlist Dashboard View
+    if hasattr(st.session_state, 'show_shortlist_detail') and st.session_state.show_shortlist_detail:
+        # Dashboard header with navigation
+        dashboard_col1, dashboard_col2 = st.columns([3, 1])
+        
+        with dashboard_col1:
+            st.title("📋 Shortlist Dashboard")
+            st.markdown("**Your complete festival planning view**")
+        
+        with dashboard_col2:
+            if st.button("⬅️ Back to Browse"):
+                st.session_state.show_shortlist_detail = False
+                st.rerun()
+        
+        if not st.session_state.shortlist:
+            st.info("Your shortlist is empty. Go back to browse and add some films!")
+            return
+        
+        st.markdown(f"**📊 {len(st.session_state.shortlist)} films in your shortlist**")
+        st.markdown("---")
+        
+        for idx, film_title in enumerate(sorted(st.session_state.shortlist)):
+            # Get film details
+            film_details = unique_films[unique_films['title'] == film_title]
+            if film_details.empty:
+                continue
+            
+            film_row = film_details.iloc[0]
+            
+            # Create film section
+            st.subheader(f"🎬 {film_title}")
+            
+            # Film information in columns
+            info_col1, info_col2, info_col3 = st.columns([2, 1, 1])
+            
+            with info_col1:
+                if pd.notna(film_row.get('director')):
+                    st.markdown(f"**Director:** {film_row['director']}")
+                if pd.notna(film_row.get('genres')):
+                    genres_list = parse_genres(film_row['genres'])
+                    if genres_list:
+                        st.markdown(f"**Genres:** {', '.join(genres_list)}")
+                if pd.notna(film_row.get('runtime')):
+                    st.markdown(f"**Runtime:** {film_row['runtime']}")
+            
+            with info_col2:
+                # Trailer search
+                if st.button(f"🎥 Search Trailer", key=f"detail_trailer_{idx}"):
+                    director = film_row.get('director', '')
+                    year = film_row.get('year', '')
+                    trailer_url = search_youtube_trailer(film_title, director, year)
+                    if trailer_url:
+                        if 'trailer_urls' not in st.session_state:
+                            st.session_state.trailer_urls = {}
+                        st.session_state.trailer_urls[film_title] = trailer_url
+                        st.rerun()
+                
+                # Show trailer link if available
+                if hasattr(st.session_state, 'trailer_urls') and film_title in st.session_state.trailer_urls:
+                    st.markdown(f"[🎬 Watch Trailer]({st.session_state.trailer_urls[film_title]})")
+            
+            with info_col3:
+                # Film page link
+                if pd.notna(film_row.get('film_url')):
+                    st.markdown(f"[🎭 Film Page]({film_row['film_url']})")
+                
+                # Remove from shortlist
+                if st.button(f"🗑️ Remove", key=f"dashboard_remove_{idx}"):
+                    st.session_state.shortlist.remove(film_title)
+                    if hasattr(st.session_state, 'trailer_urls') and film_title in st.session_state.trailer_urls:
+                        del st.session_state.trailer_urls[film_title]
+                    st.rerun()
+            
+            # Film description
+            if pd.notna(film_row.get('description')):
+                with st.expander(f"📝 Description"):
+                    st.markdown(film_row['description'])
+            
+            # Sessions for this film
+            film_sessions = processed_df[processed_df['title'] == film_title].copy()
+            
+            if len(film_sessions) > 0:
+                st.markdown("**🗓️ Available Sessions:**")
+                
+                # Process and sort sessions
+                film_sessions['session_date'] = pd.to_datetime(film_sessions['session_date'], errors='coerce')
+                film_sessions = film_sessions.sort_values('session_date')
+                
+                # Group sessions by date for better display
+                session_dates = film_sessions['session_date'].dt.date.unique() if not film_sessions['session_date'].isna().all() else []
+                
+                if len(session_dates) > 0:
+                    for date in sorted(session_dates):
+                        date_sessions = film_sessions[film_sessions['session_date'].dt.date == date]
+                        
+                        st.markdown(f"**📅 {date.strftime('%A, %B %d, %Y')}**")
+                        
+                        for _, session in date_sessions.iterrows():
+                            session_col1, session_col2, session_col3 = st.columns([1, 2, 1])
+                            
+                            with session_col1:
+                                if pd.notna(session['session_time']):
+                                    st.markdown(f"🕐 **{session['session_time']}**")
+                            
+                            with session_col2:
+                                if pd.notna(session['session_venue']):
+                                    st.markdown(f"📍 {session['session_venue']}")
+                            
+                            with session_col3:
+                                # You could add a "Book" button here if you have booking URLs
+                                pass
+                            
+                            if pd.notna(session.get('session_context')):
+                                st.markdown(f"*{session['session_context']}*")
+                        
+                        st.markdown("")  # Add spacing between dates
+                else:
+                    # If no proper dates, show all sessions in simple format
+                    for _, session in film_sessions.iterrows():
+                        session_info = []
+                        if pd.notna(session.get('session_date')):
+                            session_info.append(f"📅 {session['session_date']}")
+                        if pd.notna(session.get('session_time')):
+                            session_info.append(f"🕐 {session['session_time']}")
+                        if pd.notna(session.get('session_venue')):
+                            session_info.append(f"📍 {session['session_venue']}")
+                        
+                        if session_info:
+                            st.markdown(" | ".join(session_info))
+                        
+                        if pd.notna(session.get('session_context')):
+                            st.markdown(f"*{session['session_context']}*")
+            else:
+                st.warning("⚠️ No session information available for this film")
+            
+            # Add separator between films
+            st.markdown("---")
 
 if __name__ == "__main__":
     main()

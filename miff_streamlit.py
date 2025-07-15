@@ -66,6 +66,54 @@ def generate_share_url(shortlist):
         return share_url
     return None
 
+@st.dialog("🔗 Shared Shortlist Detected")
+def shared_shortlist_dialog(shared_shortlist):
+    """
+    Modal dialog for importing shared shortlist
+    """
+    st.markdown(f"**Someone shared their film shortlist with you!**")
+    st.markdown(f"📊 **{len(shared_shortlist)} films** in this shortlist")
+    
+    # Show preview of films
+    st.markdown("**🎬 Films in this shortlist:**")
+    
+    # Display films in a nice format
+    films_text = ""
+    for i, film in enumerate(sorted(shared_shortlist), 1):
+        films_text += f"{i}. {film}\n"
+    
+    st.text_area("Preview:", films_text, height=150, disabled=True)
+    
+    st.markdown("---")
+    st.markdown("**What would you like to do?**")
+    
+    col1, col2, col3 = st.columns([1, 1, 1])
+    
+    with col1:
+        if st.button("📥 Import All", type="primary", use_container_width=True):
+            st.session_state.shortlist.update(shared_shortlist)
+            st.session_state.imported_shared = True
+            st.query_params.clear()
+            st.success(f"✅ Imported {len(shared_shortlist)} films!")
+            st.rerun()
+    
+    with col2:
+        if st.button("🔗 Merge with Mine", use_container_width=True):
+            original_count = len(st.session_state.shortlist)
+            st.session_state.shortlist.update(shared_shortlist)
+            new_count = len(st.session_state.shortlist)
+            added_count = new_count - original_count
+            st.session_state.imported_shared = True
+            st.query_params.clear()
+            st.success(f"✅ Added {added_count} new films to your shortlist!")
+            st.rerun()
+    
+    with col3:
+        if st.button("❌ Ignore", use_container_width=True):
+            st.session_state.ignored_shared = True
+            st.query_params.clear()
+            st.rerun()
+
 def check_for_shared_shortlist():
     """
     Check URL parameters for shared shortlist and load it
@@ -80,30 +128,8 @@ def check_for_shared_shortlist():
         shared_shortlist = decode_shortlist_from_url(shortlist_param)
         
         if shared_shortlist:
-            # Show import dialog
-            st.sidebar.success(f"🔗 Shared shortlist detected! ({len(shared_shortlist)} films)")
-            
-            col1, col2 = st.sidebar.columns(2)
-            with col1:
-                if st.button("📥 Import", key="import_shared"):
-                    st.session_state.shortlist = shared_shortlist
-                    st.session_state.imported_shared = True
-                    # Clear the URL parameter after importing
-                    st.query_params.clear()
-                    st.success(f"✅ Imported {len(shared_shortlist)} films!")
-                    st.rerun()
-            
-            with col2:
-                if st.button("❌ Ignore", key="ignore_shared"):
-                    st.session_state.ignored_shared = True
-                    # Clear the URL parameter
-                    st.query_params.clear()
-                    st.rerun()
-            
-            # Show what would be imported
-            with st.sidebar.expander("🔍 Preview Shared Films"):
-                for film in sorted(shared_shortlist):
-                    st.write(f"• {film}")
+            # Show the modal dialog
+            shared_shortlist_dialog(shared_shortlist)
 
 # Function to load and process the data
 @st.cache_data
@@ -634,8 +660,25 @@ def main():
                     else:
                         st.error("❌ Failed to generate share link")
                 
+                # Show current share URL if it exists
+                if hasattr(st.session_state, 'current_share_url'):
+                    st.markdown("**Current share link:**")
+                    st.code(st.session_state.current_share_url, language="text")
                 
                 st.markdown("---")
+                
+                # Export shortlist
+                if st.button("📋 Export Shortlist for Sharing"):
+                    shortlist_data = {
+                        "films": list(st.session_state.shortlist),
+                        "saved_at": pd.Timestamp.now().isoformat()
+                    }
+                    st.download_button(
+                        label="Download Shortlist",
+                        data=json.dumps(shortlist_data, indent=2),
+                        file_name="miff_shortlist.json",
+                        mime="application/json"
+                    )
                 
                 # Load shortlist detail button
                 if st.button("📋 Load Shortlist Detail"):

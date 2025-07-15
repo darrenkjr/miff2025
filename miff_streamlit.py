@@ -1,10 +1,14 @@
 import streamlit as st
+from streamlit_calendar import calendar
 import pandas as pd
 import re
 import json
 import requests
 from urllib.parse import quote_plus
 from typing import List, Dict
+from datetime import datetime, timedelta
+import pytz
+# For calendar component, you'll need to install: pip install streamlit-calendar
 
 # Page configuration
 st.set_page_config(
@@ -21,15 +25,15 @@ def load_miff_data():
     """
     try:
         # Load the main data file
-        df = pd.read_csv('miff_2025_complete.csv')
+        df = pd.read_csv('miff_2025_complete_summary.csv')
         
         # Display basic info about the loaded data
-        st.sidebar.info(f"✅ Loaded {len(df)} records from miff_2025_complete.csv")
+        st.sidebar.info(f"✅ Loaded {len(df)} records from miff_2025_complete_summary.csv")
         
         return df
         
     except FileNotFoundError:
-        st.error("❌ Could not find 'miff_2025_complete.csv' in the current directory.")
+        st.error("❌ Could not find 'miff_2025_complete_summary.csv' in the current directory.")
         st.info("Please make sure the file exists in the same folder as this script.")
         return pd.DataFrame()
     except Exception as e:
@@ -47,6 +51,12 @@ def parse_languages(language_string):
     if pd.isna(language_string) or language_string == '':
         return []
     return [l.strip() for l in str(language_string).split(',')]
+
+def parse_strands(strand_string):
+    """Parse strand string into list"""
+    if pd.isna(strand_string) or strand_string == '':
+        return []
+    return [s.strip() for s in str(strand_string).split(',')]
 
 def get_trailer_url(film_url):
     """
@@ -72,11 +82,6 @@ def search_youtube_trailer(film_title, director=None, year=None):
         # Create YouTube search URL
         encoded_query = quote_plus(search_query)
         youtube_search_url = f"https://www.youtube.com/results?search_query={encoded_query}"
-        
-        # For now, return the search URL. In a production app, you could:
-        # 1. Use YouTube Data API to get actual video URLs
-        # 2. Use youtube-search-python library
-        # 3. Web scrape the results page
         
         return youtube_search_url
         
@@ -114,16 +119,157 @@ def load_shortlist_from_file(filename="miff_shortlist.json"):
         st.error(f"Error loading shortlist: {str(e)}")
         return set()
 
+def parse_session_datetime(session_date, session_time):
+    """Parse session date and time into datetime object"""
+    try:
+        # Handle different date formats
+        if pd.isna(session_date) or pd.isna(session_time):
+            return None
+        
+        # Convert session_date to string if it's not already
+        date_str = str(session_date).strip()
+        time_str = str(session_time).strip()
+        
+        # Parse date - handle formats like "25 Aug" (assume 2025)
+        if re.match(r'\d{1,2}\s+\w+', date_str):
+            # Format like "25 Aug" - add 2025
+            date_str = f"{date_str} 2025"
+            dt = datetime.strptime(date_str, '%d %b %Y')
+        elif re.match(r'\d{1,2}\s+\w+\s+\d{4}', date_str):
+            # Format like "25 Aug 2025"
+            dt = datetime.strptime(date_str, '%d %b %Y')
+        else:
+            # Try to parse as is with pandas
+            dt = pd.to_datetime(date_str, errors='coerce')
+            if pd.isna(dt):
+                return None
+            dt = dt.to_pydatetime()
+        
+        # Parse time - handle various formats
+        time_str = time_str.replace('.', ':')  # Handle 6.15pm format
+        time_str = time_str.replace(' ', '')   # Remove spaces
+        
+        if 'pm' in time_str.lower():
+            time_obj = datetime.strptime(time_str.lower(), '%I:%M%p').time()
+        elif 'am' in time_str.lower():
+            time_obj = datetime.strptime(time_str.lower(), '%I:%M%p').time()
+        elif ':' in time_str:
+            time_obj = datetime.strptime(time_str, '%H:%M').time()
+        else:
+            # Handle cases like "6pm" or "10am"
+            if 'pm' in time_str.lower():
+                hour = int(time_str.lower().replace('pm', ''))
+                if hour != 12:
+                    hour += 12
+                time_obj = datetime.strptime(f"{hour}:00", '%H:%M').time()
+            elif 'am' in time_str.lower():
+                hour = int(time_str.lower().replace('am', ''))
+                if hour == 12:
+                    hour = 0
+                time_obj = datetime.strptime(f"{hour}:00", '%H:%M').time()
+            else:
+                return None
+        
+        # Combine date and time
+        combined = datetime.combine(dt.date(), time_obj)
+        
+        # Set to Melbourne timezone
+        melbourne_tz = pytz.timezone('Australia/Melbourne')
+        return melbourne_tz.localize(combined)
+        
+    except Exception as e:
+        print(f"Error parsing datetime: {session_date} {session_time} - {e}")
+        return None
+
+def create_calendar_events(shortlist_sessions):
+    """Create calendar events from shortlist sessions"""
+    events = []
+    
+    for _, session in shortlist_sessions.iterrows():
+        dt = parse_session_datetime(session['session_date'], session['session_time'])
+        if dt:
+            # Assume 2 hour duration for films
+            end_dt = dt + timedelta(hours=2)
+            
+            event = {
+                'title': session['title'],
+                'start': dt.isoformat(),
+                'end': end_dt.isoformat(),
+                'resourceId': session.get('session_venue', 'Unknown'),
+                'extendedProps': {
+                    'director': session.get('director', ''),
+                    'venue': session.get('session_venue', ''),
+                    'runtime': session.get('runtime', ''),
+                    'description': session.get('description', '')[:100] + '...' if session.get('description') else ''
+                }
+            }
+            events.append(event)
+    
+    return events
+
+def generate_ics_file(shortlist_sessions):
+    """Generate ICS file content from shortlist sessions"""
+    ics_content = ["BEGIN:VCALENDAR"]
+    ics_content.append("VERSION:2.0")
+    ics_content.append("PRODID:-//MIFF 2025 Shortlist//EN")
+    ics_content.append("CALSCALE:GREGORIAN")
+    ics_content.append("METHOD:PUBLISH")
+    
+    for _, session in shortlist_sessions.iterrows():
+        dt = parse_session_datetime(session['session_date'], session['session_time'])
+        if dt:
+            # Convert to UTC for ICS
+            utc_dt = dt.astimezone(pytz.UTC)
+            end_dt = utc_dt + timedelta(hours=2)  # Assume 2 hour duration
+            
+            # Format datetime for ICS (YYYYMMDDTHHMMSSZ)
+            start_str = utc_dt.strftime('%Y%m%dT%H%M%SZ')
+            end_str = end_dt.strftime('%Y%m%dT%H%M%SZ')
+            
+            # Create unique ID
+            uid = f"miff2025-{session.get('film_id', 'unknown')}-{start_str}"
+            
+            ics_content.append("BEGIN:VEVENT")
+            ics_content.append(f"UID:{uid}")
+            ics_content.append(f"DTSTART:{start_str}")
+            ics_content.append(f"DTEND:{end_str}")
+            ics_content.append(f"SUMMARY:{session['title']}")
+            
+            # Add description
+            description_parts = []
+            description_parts.append(f"Film: {session['title']}")
+            description_parts.append(f"Venue: {session['session_venue']}")
+            description_parts.append(f"Director: {session['director']}")
+            description_parts.append(f"Runtime: {session['runtime']}")
+            description_parts.append(f"Description: {session['description']}")
+            description_parts.append(f"Film URL: {session['film_url']}")
+            
+            if description_parts:
+                ics_content.append(f"DESCRIPTION:{'\\n'.join(description_parts)}")
+
+            
+            # Add location
+            if session.get('session_venue'):
+                ics_content.append(f"LOCATION:{session['session_venue']}")
+            
+            # Add URL if available
+            if session.get('film_url'):
+                ics_content.append(f"URL:{session['film_url']}")
+            
+            ics_content.append("END:VEVENT")
+    
+    ics_content.append("END:VCALENDAR")
+    return "\n".join(ics_content)
+
 def main():
     st.title("🎬 MIFF 2025 Film Browser")
     st.markdown("Browse, filter, and shortlist films from the Melbourne International Film Festival 2025")
+    st.markdown("This is a personal project and not affiliated with the Melbourne International Film Festival. I make no guarantees about the accuracy of the data, but if this is helpful to you, feel free to share this with your friends!")
+    st.markdown("Please report any issues or suggestions in the github repo: https://github.com/darrenkjr/miff2025/issues/new ")
     
     # Load data directly from local file
     processed_df = load_miff_data()
     
-    if len(processed_df) == 0:
-        st.warning("No data found. Please check if 'miff_2025_complete.csv' exists in the current directory.")
-        return
     
     # Display column information for debugging
     st.sidebar.header("📊 Data Info")
@@ -146,19 +292,22 @@ def main():
     
     # Get unique films (deduplicate by title)
     unique_films = processed_df.drop_duplicates(subset=['title']).copy()
-    
-    # Extract all unique genres and languages
+
     all_genres = set()
     all_languages = set()
+    all_strands = set()
     
     for _, row in unique_films.iterrows():
         if pd.notna(row.get('genres')):
             all_genres.update(parse_genres(row['genres']))
         if pd.notna(row.get('languages')):
             all_languages.update(parse_languages(row['languages']))
+        if pd.notna(row.get('strands')):
+            all_strands.update(parse_strands(row['strands']))
     
     all_genres = sorted(list(all_genres))
     all_languages = sorted(list(all_languages))
+    all_strands = sorted(list(all_strands))
     
     # Sidebar filters
     st.sidebar.header("🔍 Filters")
@@ -175,6 +324,12 @@ def main():
         "Select Languages:",
         all_languages,
         help="Select one or more languages to filter films"
+    )
+
+    selected_strands = st.sidebar.multiselect(
+        "Select Strands:",
+        all_strands,
+        help="Select one or more strands to filter films"
     )
     
     # Text search
@@ -200,6 +355,12 @@ def main():
             )
         ]
     
+    if selected_strands:
+        filtered_films = filtered_films[
+            filtered_films['strands'].apply(
+                lambda x: any(strand in parse_strands(x) for strand in selected_strands)
+            )
+        ]
     if search_term:
         search_mask = (
             filtered_films['title'].str.contains(search_term, case=False, na=False) |
@@ -260,6 +421,11 @@ def main():
                                 languages_list = parse_languages(film['languages'])
                                 if languages_list:
                                     st.markdown(f"**Languages:** {', '.join(languages_list)}")
+
+                            if pd.notna(film.get('strands')):
+                                strands_list = parse_strands(film['strands'])
+                                if strands_list:
+                                    st.markdown(f"**Strands:** {', '.join(strands_list)}")
                             
                             if pd.notna(film.get('runtime')):
                                 st.markdown(f"**Runtime:** {film['runtime']}")
@@ -269,6 +435,7 @@ def main():
                             
                             if pd.notna(film.get('description')):
                                 st.markdown(f"**Description:** {film['description']}")
+
                         
                         with film_col2:
                             # Shortlist button
@@ -365,29 +532,62 @@ def main():
             film_sessions = processed_df[processed_df['title'] == selected_film].copy()
             
             if len(film_sessions) > 0:
-                # Group by date
-                film_sessions['session_date'] = pd.to_datetime(film_sessions['session_date'], errors='coerce')
-                film_sessions = film_sessions.sort_values('session_date')
+                # Process and sort sessions with proper date handling
+                film_sessions['session_date_parsed'] = film_sessions.apply(
+                    lambda row: parse_session_datetime(row['session_date'], '12:00pm'), axis=1
+                )
+                film_sessions = film_sessions.sort_values('session_date_parsed')
                 
-                for _, session in film_sessions.iterrows():
-                    col1, col2, col3 = st.columns(3)
-                    
-                    with col1:
-                        if pd.notna(session['session_date']):
-                            st.markdown(f"**📅 {session['session_date'].strftime('%B %d, %Y') if hasattr(session['session_date'], 'strftime') else session['session_date']}**")
-                    
-                    with col2:
-                        if pd.notna(session['session_time']):
-                            st.markdown(f"**🕐 {session['session_time']}**")
-                    
-                    with col3:
-                        if pd.notna(session['session_venue']):
-                            st.markdown(f"**📍 {session['session_venue']}**")
-                    
-                    if pd.notna(session.get('session_context')):
-                        st.markdown(f"*{session['session_context']}*")
-                    
-                    st.markdown("---")
+                # Group sessions by date for better display
+                session_dates = []
+                for _, row in film_sessions.iterrows():
+                    if row['session_date_parsed']:
+                        session_dates.append(row['session_date_parsed'].date())
+                
+                unique_dates = sorted(list(set(session_dates)))
+                
+                if len(unique_dates) > 0:
+                    for date in unique_dates:
+                        date_sessions = film_sessions[
+                            film_sessions['session_date_parsed'].dt.date == date
+                        ]
+                        
+                        st.markdown(f"**📅 {date.strftime('%A, %B %d, %Y')}**")
+                        
+                        for _, session in date_sessions.iterrows():
+                            session_col1, session_col2, session_col3 = st.columns([1, 2, 1])
+                            
+                            with session_col1:
+                                if pd.notna(session['session_time']):
+                                    st.markdown(f"🕐 **{session['session_time']}**")
+                            
+                            with session_col2:
+                                if pd.notna(session['session_venue']):
+                                    st.markdown(f"📍 {session['session_venue']}")
+                            
+                            with session_col3:
+                                pass
+                            
+                            if pd.notna(session.get('session_context')):
+                                st.markdown(f"*{session['session_context']}*")
+                        
+                        st.markdown("")
+                else:
+                    # Fallback to simple format
+                    for _, session in film_sessions.iterrows():
+                        session_info = []
+                        if pd.notna(session.get('session_date')):
+                            session_info.append(f"📅 {session['session_date']}")
+                        if pd.notna(session.get('session_time')):
+                            session_info.append(f"🕐 {session['session_time']}")
+                        if pd.notna(session.get('session_venue')):
+                            session_info.append(f"📍 {session['session_venue']}")
+                        
+                        if session_info:
+                            st.markdown(" | ".join(session_info))
+                        
+                        if pd.notna(session.get('session_context')):
+                            st.markdown(f"*{session['session_context']}*")
             else:
                 st.warning("No session information found for this film.")
             
@@ -439,6 +639,18 @@ def main():
                         st.markdown(f"**Genres:** {', '.join(genres_list)}")
                 if pd.notna(film_row.get('runtime')):
                     st.markdown(f"**Runtime:** {film_row['runtime']}")
+                if pd.notna(film_row.get('year')):
+                    st.markdown(f"**Year:** {film_row['year']}")
+                if pd.notna(film_row.get('strands')):
+                    strands_list = parse_strands(film_row['strands'])
+                    if strands_list:
+                        st.markdown(f"**Strands:** {', '.join(strands_list)}")
+                if pd.notna(film_row.get('languages')):
+                    languages_list = parse_languages(film_row['languages'])
+                    if languages_list:
+                        st.markdown(f"**Languages:** {', '.join(languages_list)}")
+                if pd.notna(film_row.get('description')):
+                    st.markdown(f"**Description:** {film_row['description']}")
             
             with info_col2:
                 # Trailer search
@@ -468,27 +680,35 @@ def main():
                         del st.session_state.trailer_urls[film_title]
                     st.rerun()
             
-            # Film description
-            if pd.notna(film_row.get('description')):
-                with st.expander(f"📝 Description"):
-                    st.markdown(film_row['description'])
+
+            if pd.notna(film_row.get('synopsis')):
+                with st.expander(f"📝 Synopsis"):
+                    st.markdown(film_row['synopsis'])
             
             # Sessions for this film
             film_sessions = processed_df[processed_df['title'] == film_title].copy()
-            
             if len(film_sessions) > 0:
                 st.markdown("**🗓️ Available Sessions:**")
                 
-                # Process and sort sessions
-                film_sessions['session_date'] = pd.to_datetime(film_sessions['session_date'], errors='coerce')
-                film_sessions = film_sessions.sort_values('session_date')
+                # Process and sort sessions with proper date handling
+                film_sessions['session_date_parsed'] = film_sessions.apply(
+                    lambda row: parse_session_datetime(row['session_date'], '12:00pm'), axis=1
+                )
+                film_sessions = film_sessions.sort_values('session_date_parsed')
                 
                 # Group sessions by date for better display
-                session_dates = film_sessions['session_date'].dt.date.unique() if not film_sessions['session_date'].isna().all() else []
+                session_dates = []
+                for _, row in film_sessions.iterrows():
+                    if row['session_date_parsed']:
+                        session_dates.append(row['session_date_parsed'].date())
                 
-                if len(session_dates) > 0:
-                    for date in sorted(session_dates):
-                        date_sessions = film_sessions[film_sessions['session_date'].dt.date == date]
+                unique_dates = sorted(list(set(session_dates)))
+                
+                if len(unique_dates) > 0:
+                    for date in unique_dates:
+                        date_sessions = film_sessions[
+                            film_sessions['session_date_parsed'].dt.date == date
+                        ]
                         
                         st.markdown(f"**📅 {date.strftime('%A, %B %d, %Y')}**")
                         
@@ -532,6 +752,125 @@ def main():
             
             # Add separator between films
             st.markdown("---")
+        
+        # Calendar View Section
+        st.header("📅 Calendar View")
+        
+        # Get all sessions for shortlisted films
+        shortlist_sessions = processed_df[processed_df['title'].isin(st.session_state.shortlist)].copy()
+        sessions_with_times = shortlist_sessions[shortlist_sessions['session_time'].notna() & 
+                                               shortlist_sessions['session_date'].notna()]
+        
+        if len(sessions_with_times) > 0:
+            # Create calendar events
+            events = create_calendar_events(sessions_with_times)
+            
+            if events:
+                # Calendar configuration - start from MIFF opening day
+                calendar_options = {
+                    "editable": False,
+                    "navLinks": True,
+                    "dayMaxEvents": 3,
+                    "headerToolbar": {
+                        "left": "prev,next today",
+                        "center": "title",
+                        "right": "dayGridMonth,timeGridWeek,timeGridDay"
+                    },
+                    "initialView": "timeGridWeek",
+                    "initialDate": "2025-08-07",  # MIFF opening day
+                    "height": 600,
+                    "slotMinTime": "09:00:00",
+                    "slotMaxTime": "23:00:00",
+                    "validRange": {
+                        "start": "2025-08-01",
+                        "end": "2025-08-31"
+                    }
+                }
+                
+                # Display calendar
+                calendar_component = calendar(
+                    events=events,
+                    options=calendar_options,
+                    key="miff_calendar"
+                )
+                
+                # Show event details if clicked
+                if calendar_component.get("eventClick"):
+                    event_details = calendar_component["eventClick"]["event"]
+                    st.info(f"**{event_details['title']}**\n"
+                           f"📍 {event_details.get('extendedProps', {}).get('venue', 'Unknown venue')}\n"
+                           f"🎬 Director: {event_details.get('extendedProps', {}).get('director', 'Unknown')}\n"
+                           f"⏱️ {event_details.get('extendedProps', {}).get('runtime', 'Unknown runtime')}")
+            else:
+                st.warning("Unable to parse session times for calendar display.")
+            
+            # Export buttons
+            st.markdown("### 📤 Export Options")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # ICS Export
+                ics_content = generate_ics_file(sessions_with_times)
+                st.download_button(
+                    label="📅 Download Calendar (ICS)",
+                    data=ics_content,
+                    file_name=f"miff_2025_shortlist_{datetime.now().strftime('%Y%m%d')}.ics",
+                    mime="text/calendar",
+                    help="Download as calendar file to import into Google Calendar, Outlook, etc."
+                )
+            
+            with col2:
+                # CSV Export of sessions
+                csv_data = sessions_with_times[['title', 'director', 'session_date', 'session_time', 
+                                               'session_venue', 'runtime', 'film_url']].to_csv(index=False)
+                st.download_button(
+                    label="📊 Download Sessions (CSV)",
+                    data=csv_data,
+                    file_name=f"miff_2025_sessions_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv",
+                    help="Download session details as spreadsheet"
+                )
+            
+            # Statistics
+            st.markdown("### 📊 Schedule Summary")
+            
+            stats_col1, stats_col2, stats_col3 = st.columns(3)
+            
+            with stats_col1:
+                total_sessions = len(sessions_with_times)
+                st.metric("Total Sessions", total_sessions)
+            
+            with stats_col2:
+                unique_venues = sessions_with_times['session_venue'].nunique()
+                st.metric("Unique Venues", unique_venues)
+            
+            with stats_col3:
+                date_range = sessions_with_times['session_date'].nunique()
+                st.metric("Festival Days", date_range)
+            
+            # Venue breakdown
+            venue_counts = sessions_with_times['session_venue'].value_counts()
+            if len(venue_counts) > 0:
+                st.markdown("**Sessions by Venue:**")
+                for venue, count in venue_counts.items():
+                    st.write(f"📍 {venue}: {count} sessions")
+        
+        else:
+            st.info("No sessions with valid dates/times found in your shortlist.")
+            
+            # Still offer shortlist export
+            if st.button("📋 Export Shortlist (JSON)"):
+                shortlist_data = {
+                    "films": list(st.session_state.shortlist),
+                    "exported_at": datetime.now().isoformat()
+                }
+                st.download_button(
+                    label="Download Shortlist",
+                    data=json.dumps(shortlist_data, indent=2),
+                    file_name=f"miff_shortlist_{datetime.now().strftime('%Y%m%d')}.json",
+                    mime="application/json"
+                )
 
 if __name__ == "__main__":
     main()

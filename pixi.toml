@@ -1,0 +1,13 @@
+[workspace]
+channels = ["conda-forge"]
+name = "miff"
+platforms = ["osx-arm64"]
+version = "0.1.0"
+
+[tasks]
+
+[dependencies]
+python = ">=3.13.5,<3.14"
+bs4 = ">=4.13.4,<5"
+pandas = ">=2.3.1,<3"
+streamlit = ">=1.46.1,<2"

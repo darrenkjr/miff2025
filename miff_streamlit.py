@@ -53,7 +53,6 @@ def generate_share_url(shortlist):
     """
     encoded_shortlist = encode_shortlist_for_url(shortlist)
     if encoded_shortlist:
-        # Check if running locally or on deployment
         try:
             # For deployed app
             base_url = "https://miff2025browser.streamlit.app"
@@ -69,20 +68,16 @@ def generate_share_url(shortlist):
 @st.dialog("🔗 Shared Shortlist Detected")
 def shared_shortlist_dialog(shared_shortlist):
     """
-    Modal dialog for importing shared shortlist
+    Universal modal dialog for importing shared shortlist (works on desktop and mobile)
     """
     st.markdown(f"**Someone shared their film shortlist with you!**")
     st.markdown(f"📊 **{len(shared_shortlist)} films** in this shortlist")
     
-    # Show preview of films
-    st.markdown("**🎬 Films in this shortlist:**")
-    
-    # Display films in a nice format
-    films_text = ""
-    for i, film in enumerate(sorted(shared_shortlist), 1):
-        films_text += f"{i}. {film}\n"
-    
-    st.text_area("Preview:", films_text, height=150, disabled=True)
+
+    with st.expander("🎬 Films in this shortlist", expanded=False):
+        # Display films in a clean list format
+        for i, film in enumerate(sorted(shared_shortlist), 1):
+            st.write(f"{i}. {film}")
     
     st.markdown("---")
     st.markdown("**What would you like to do?**")
@@ -91,9 +86,13 @@ def shared_shortlist_dialog(shared_shortlist):
     
     with col1:
         if st.button("📥 Import All", type="primary", use_container_width=True):
-            st.session_state.shortlist.update(shared_shortlist)
+            st.session_state.shortlist = shared_shortlist
             st.session_state.imported_shared = True
-            st.query_params.clear()
+            # Clear URL params with mobile-friendly error handling
+            try:
+                st.query_params.clear()
+            except:
+                pass
             st.success(f"✅ Imported {len(shared_shortlist)} films!")
             st.rerun()
     
@@ -104,25 +103,40 @@ def shared_shortlist_dialog(shared_shortlist):
             new_count = len(st.session_state.shortlist)
             added_count = new_count - original_count
             st.session_state.imported_shared = True
-            st.query_params.clear()
+            # Clear URL params with mobile-friendly error handling
+            try:
+                st.query_params.clear()
+            except:
+                pass
             st.success(f"✅ Added {added_count} new films to your shortlist!")
             st.rerun()
     
     with col3:
         if st.button("❌ Ignore", use_container_width=True):
             st.session_state.ignored_shared = True
-            st.query_params.clear()
+            # Clear URL params with mobile-friendly error handling
+            try:
+                st.query_params.clear()
+            except:
+                pass
             st.rerun()
 
 def check_for_shared_shortlist():
     """
-    Check URL parameters for shared shortlist and load it
+    Check URL parameters for shared shortlist and load it (works on desktop and mobile)
     """
-    # Use the latest Streamlit query params API
-    query_params = st.query_params
-    
-    # Get the shortlist parameter
-    shortlist_param = query_params.get("shortlist")
+    # Robust query params handling for both desktop and mobile
+    try:
+        # Try the new API first
+        query_params = st.query_params
+        shortlist_param = query_params.get("shortlist")
+    except:
+        # Fallback for older versions or mobile issues
+        try:
+            query_params = st.experimental_get_query_params()
+            shortlist_param = query_params.get("shortlist", [None])[0]
+        except:
+            shortlist_param = None
     
     if shortlist_param:
         shared_shortlist = decode_shortlist_from_url(shortlist_param)
@@ -130,6 +144,58 @@ def check_for_shared_shortlist():
         if shared_shortlist:
             # Show the modal dialog
             shared_shortlist_dialog(shared_shortlist)
+
+def show_shared_shortlist_import(shared_shortlist):
+    """
+    Mobile-friendly import interface (no modal) - Alternative to dialog
+    """
+    # Create a prominent container at the top
+    with st.container():
+        st.markdown("---")
+        st.markdown("### 🔗 Shared Shortlist Detected!")
+        st.info(f"Someone shared their film shortlist with you! **{len(shared_shortlist)} films** included.")
+        
+        # Show preview in an expander (mobile-friendly)
+        with st.expander("🎬 Preview Films", expanded=False):
+            for i, film in enumerate(sorted(shared_shortlist), 1):
+                st.write(f"{i}. {film}")
+        
+        # Action buttons
+        col1, col2, col3 = st.columns([1, 1, 1])
+        
+        with col1:
+            if st.button("📥 Import All", type="primary", use_container_width=True):
+                st.session_state.shortlist = shared_shortlist
+                st.session_state.imported_shared = True
+                try:
+                    st.query_params.clear()
+                except:
+                    pass
+                st.success(f"✅ Imported {len(shared_shortlist)} films!")
+                st.rerun()
+        
+        with col2:
+            if st.button("🔗 Merge with Mine", use_container_width=True):
+                original_count = len(st.session_state.shortlist)
+                st.session_state.shortlist.update(shared_shortlist)
+                new_count = len(st.session_state.shortlist)
+                added_count = new_count - original_count
+                st.session_state.imported_shared = True
+                try:
+                    st.query_params.clear()
+                except:
+                    pass
+                st.success(f"✅ Added {added_count} new films to your shortlist!")
+                st.rerun()
+        
+        with col3:
+            if st.button("❌ Ignore", use_container_width=True):
+                st.session_state.ignored_shared = True
+                try:
+                    st.query_params.clear()
+                except:
+                    pass
+                st.rerun()
 
 # Function to load and process the data
 @st.cache_data
@@ -396,16 +462,6 @@ def main():
     # Load data directly from local file
     processed_df = load_miff_data()
     
-    if processed_df.empty:
-        st.error("No data loaded. Please check your CSV file.")
-        return
-    
-    # Display column information for debugging
-    st.sidebar.header("📊 Data Info")
-    with st.sidebar.expander("Column Information"):
-        st.write("Available columns:")
-        for col in processed_df.columns:
-            st.write(f"- {col}")
     
     with st.sidebar.expander("ℹ️ Trailer Search Info"):
         st.markdown("""
@@ -413,10 +469,7 @@ def main():
         - 🎥 Search YouTube for film trailers
         - 🔍 Uses film title, director, and year
         - 💾 Trailer links persist in your session
-        
-        **Note:** For better results, consider adding:
-        - YouTube Data API integration
-        - `youtube-search-python` library
+
         """)
     
     # Get unique films (deduplicate by title)
@@ -529,39 +582,40 @@ def main():
             if len(filtered_films) == 0:
                 st.warning("No films match your current filters.")
             else:
-                # Display films
-                for idx, (_, film) in enumerate(filtered_films.iterrows()):
-                    with st.expander(f"🎬 {film['title']}", expanded=False):
-                        film_col1, film_col2 = st.columns([3, 1])
-                        
-                        with film_col1:
-                            st.markdown(f"**Director:** {film.get('director', 'N/A')}")
+            # Wrap the entire film list in an expander
+                with st.expander("🎬 Show Films", expanded=False):  # You can set expanded=False if you want it collapsed by default
+                    # Display films
+                    for idx, (_, film) in enumerate(filtered_films.iterrows()):
+                        with st.expander(f"🎬 {film['title']}", expanded=True):
+                            film_col1, film_col2 = st.columns([3, 1])
                             
-                            if pd.notna(film.get('genres')):
-                                genres_list = parse_genres(film['genres'])
-                                if genres_list:
-                                    st.markdown(f"**Genres:** {', '.join(genres_list)}")
-                            
-                            if pd.notna(film.get('languages')):
-                                languages_list = parse_languages(film['languages'])
-                                if languages_list:
-                                    st.markdown(f"**Languages:** {', '.join(languages_list)}")
+                            with film_col1:
+                                st.markdown(f"**Director:** {film.get('director', 'N/A')}")
+                                
+                                if pd.notna(film.get('genres')):
+                                    genres_list = parse_genres(film['genres'])
+                                    if genres_list:
+                                        st.markdown(f"**Genres:** {', '.join(genres_list)}")
+                                
+                                if pd.notna(film.get('languages')):
+                                    languages_list = parse_languages(film['languages'])
+                                    if languages_list:
+                                        st.markdown(f"**Languages:** {', '.join(languages_list)}")
 
-                            if pd.notna(film.get('strands')):
-                                strands_list = parse_strands(film['strands'])
-                                if strands_list:
-                                    st.markdown(f"**Strands:** {', '.join(strands_list)}")
-                            
-                            if pd.notna(film.get('runtime')):
-                                st.markdown(f"**Runtime:** {film['runtime']}")
-                            
-                            if pd.notna(film.get('year')):
-                                st.markdown(f"**Year:** {film['year']}")
-                            
-                            if pd.notna(film.get('description')):
-                                st.markdown(f"**Description:** {film['description']}")
+                                if pd.notna(film.get('strands')):
+                                    strands_list = parse_strands(film['strands'])
+                                    if strands_list:
+                                        st.markdown(f"**Strands:** {', '.join(strands_list)}")
+                                
+                                if pd.notna(film.get('runtime')):
+                                    st.markdown(f"**Runtime:** {film['runtime']}")
+                                
+                                if pd.notna(film.get('year')):
+                                    st.markdown(f"**Year:** {film['year']}")
+                                
+                                if pd.notna(film.get('description')):
+                                    st.markdown(f"**Description:** {film['description']}")
 
-                        
                         with film_col2:
                             # Shortlist button
                             film_title = film['title']
@@ -660,8 +714,8 @@ def main():
                     else:
                         st.error("❌ Failed to generate share link")
                 
-                st.markdown("---")
                 
+                st.markdown("---")
                 
                 # Load shortlist detail button
                 if st.button("📋 Load Shortlist Detail"):

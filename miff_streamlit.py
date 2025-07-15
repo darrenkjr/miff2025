@@ -697,7 +697,24 @@ def main():
                                 st.rerun()
                 
                 st.markdown("---")
+
+                                
+                # Load shortlist detail button
+                if st.button("📋 Load Shortlist Detail"):
+                    st.session_state.show_shortlist_detail = True
+                    st.rerun()
                 
+                # Clear shortlist
+                if st.button("🗑️ Clear Shortlist"):
+                    st.session_state.shortlist.clear()
+                    if hasattr(st.session_state, 'trailer_urls'):
+                        st.session_state.trailer_urls.clear()
+                    if hasattr(st.session_state, 'current_share_url'):
+                        del st.session_state.current_share_url
+                    st.rerun()
+                                
+                st.markdown("---")
+
                 # Share shortlist section
                 st.subheader("🔗 Share Your Shortlist")
                 
@@ -714,22 +731,7 @@ def main():
                     else:
                         st.error("❌ Failed to generate share link")
                 
-                
-                st.markdown("---")
-                
-                # Load shortlist detail button
-                if st.button("📋 Load Shortlist Detail"):
-                    st.session_state.show_shortlist_detail = True
-                    st.rerun()
-                
-                # Clear shortlist
-                if st.button("🗑️ Clear Shortlist"):
-                    st.session_state.shortlist.clear()
-                    if hasattr(st.session_state, 'trailer_urls'):
-                        st.session_state.trailer_urls.clear()
-                    if hasattr(st.session_state, 'current_share_url'):
-                        del st.session_state.current_share_url
-                    st.rerun()
+
 
         
         # Show sessions for selected film (only in browse mode)

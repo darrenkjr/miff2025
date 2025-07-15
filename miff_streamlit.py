@@ -840,6 +840,8 @@ def main():
                     st.markdown("**Copy this link and send it to your friends!**")
                     st.session_state.current_share_url = share_url
                     st.markdown("---")
+                else: 
+                    st.markdown("---")
 
 
 

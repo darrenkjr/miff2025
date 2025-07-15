@@ -660,25 +660,8 @@ def main():
                     else:
                         st.error("❌ Failed to generate share link")
                 
-                # Show current share URL if it exists
-                if hasattr(st.session_state, 'current_share_url'):
-                    st.markdown("**Current share link:**")
-                    st.code(st.session_state.current_share_url, language="text")
-                
                 st.markdown("---")
                 
-                # Export shortlist
-                if st.button("📋 Export Shortlist for Sharing"):
-                    shortlist_data = {
-                        "films": list(st.session_state.shortlist),
-                        "saved_at": pd.Timestamp.now().isoformat()
-                    }
-                    st.download_button(
-                        label="Download Shortlist",
-                        data=json.dumps(shortlist_data, indent=2),
-                        file_name="miff_shortlist.json",
-                        mime="application/json"
-                    )
                 
                 # Load shortlist detail button
                 if st.button("📋 Load Shortlist Detail"):

@@ -246,6 +246,7 @@ class SimplifiedMIFFScraper:
             df = pd.DataFrame(self.all_data)
             df.to_csv(filename, index=False)
             print(f"Saved {len(self.all_data)} records to {filename}")
+
             
             summary_cols = ['title', 'director', 'year', 'runtime', 'genres', 'strands', 'description', 'synopsis', 'languages',
                           'session_date', 'session_venue', 'session_time', 'film_url']

@@ -825,7 +825,24 @@ def main():
             return
         
         st.markdown(f"**📊 {len(st.session_state.shortlist)} films in your shortlist**")
-        st.markdown("---")
+        #check if there is a shared link genreated already 
+        if hasattr(st.session_state, 'current_share_url'):
+            st.markdown("**🔗 Link to share your shortlist:**")
+            st.code(st.session_state.current_share_url, language="text")
+            st.markdown("---")
+        else: 
+            st.markdown("**🔗 Generate a share link to share your shortlist with friends!**")
+            if st.button("🔗 Generate Share Link", help="Create a link to share your shortlist with friends"):
+                share_url = generate_share_url(st.session_state.shortlist)
+                if share_url:
+                    st.success("✅ Share link generated!")
+                    st.code(share_url, language="text")
+                    st.markdown("**Copy this link and send it to your friends!**")
+                    st.session_state.current_share_url = share_url
+                    st.markdown("---")
+
+
+
         
         for idx, film_title in enumerate(sorted(st.session_state.shortlist)):
             # Get film details

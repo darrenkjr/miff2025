@@ -2,3 +2,5 @@
 # pixi environments
 .pixi
 *.egg-info
+
+miff_shortlist.json
